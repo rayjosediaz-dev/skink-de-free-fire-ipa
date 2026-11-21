@@ -2,6 +2,13 @@
 
 Visor para iPhone y iPad con iOS 15 o posterior. La app guarda una copia local de lo que importas desde Archivos.
 
+## Personajes incluidos y exportación
+
+- La app incluye un **personaje 3D original generado con SceneKit** con variantes de tono de piel, cabello, camiseta, pantalón y zapatos. El botón **Personaje aleatorio** genera combinaciones; el Vestidor permite cambiar colores por categoría.
+- **Exportar .scn** abre el menú de compartir de iOS para guardar el personaje 3D en Archivos. Este modelo no es un asset oficial de Free Fire y no se puede instalar como skin del juego.
+- **UnityFS**: la importación conserva una copia local aunque la versión del paquete no pueda indexarse. La importación no convierte UnityFS a personaje 3D ni reescribe el bundle original.
+- No se incluyen todas las skins oficiales de Free Fire, sus modelos ni sus texturas; tampoco se afirma compatibilidad del archivo exportado con el juego.
+
 ## Visor y vestidor
 
 - **UnityFS** abre paquetes por su firma, incluso con extensiones desconocidas como `~3D` o `.3105`. Lee paquetes con bloques sin comprimir, LZMA, LZ4 o LZ4HC. En los paquetes con rutas de vestidor reconocibles, muestra los nombres internos por categoría. El paquete de ejemplo incluye recursos `DJmale Awakening` de cabello, rostro, torso, pantalón y zapatos. Estas referencias describen recursos presentes en el paquete y no indican cuáles están equipados.
