@@ -19,7 +19,7 @@ private enum Screen: String, CaseIterable {
 
 struct MainView: View {
     @State private var screen = Screen.viewer
-    @State private var studioEnabled = true
+    @State private var studioEnabled = false
     @State private var characterIndex = 0
     @State private var animeStyleName = "Original"
     @State private var hairIndex = 0
@@ -79,7 +79,7 @@ struct MainView: View {
         }
         .onAppear {
             restoreLibrary()
-            if activeAsset == nil { refreshStudio() }
+            // No presentar personajes inventados como si fueran Alok.
         }
     }
 
@@ -150,6 +150,7 @@ struct MainView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     assetSummary(activeAsset)
                     if !activeAsset.isModel {
+                        bundleInspector(activeAsset)
                         Button("Ver prendas detectadas") { screen = .wardrobe }
                             .font(.subheadline.weight(.semibold))
                     }
@@ -166,6 +167,33 @@ struct MainView: View {
                     .background(panel, in: RoundedRectangle(cornerRadius: 16))
             }
         }
+    }
+
+    private func bundleInspector(_ asset: ImportedAsset) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Inspector de recursos UnityFS").font(.headline)
+            Text("Archivo conservado sin modificaciones. Los nombres detectados no garantizan que contenga una malla 3D de Alok.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Entradas: \\(asset.entries.count) · Categorías de prendas: \\(asset.pieces.count)")
+                .font(.subheadline)
+            if asset.entries.isEmpty {
+                Text("No se pudo leer el índice interno. El archivo permanece importado.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(asset.entries.prefix(30)), id: \.self) { entry in
+                    Text(entry).font(.caption.monospaced()).lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            ForEach(WardrobeSlot.allCases) { slot in
+                let count = asset.pieces[slot]?.count ?? 0
+                if count > 0 {
+                    Text("\\(slot.rawValue): \\(count) recursos")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+        }
+        .padding(.top, 8)
     }
 
     private var stageGrid: some View {
@@ -195,7 +223,11 @@ struct MainView: View {
     private var wardrobe: some View {
         Group {
             Text("Vestidor").font(.system(.largeTitle, design: .rounded).bold())
-            if studioEnabled { animePresets; studioWardrobe }
+            if activeAsset?.kind == "UnityFS" {
+                Text("Prendas detectadas en el archivo importado. Aún no se pueden equipar sobre Alok hasta decodificar la malla y sus materiales.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if studioEnabled { studioWardrobe }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(WardrobeSlot.allCases) { slot in
