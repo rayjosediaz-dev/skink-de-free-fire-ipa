@@ -5,6 +5,7 @@ settings:
   base:
     IPHONEOS_DEPLOYMENT_TARGET: '15.0'
     SWIFT_VERSION: '5.0'
+    SWIFT_OBJC_BRIDGING_HEADER: PantherFFSkinViewer/LZMA/PantherCompression.h
 targets:
   PantherFFSkinViewer:
     type: application

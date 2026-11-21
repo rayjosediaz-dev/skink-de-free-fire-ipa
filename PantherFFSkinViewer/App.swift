@@ -1,173 +1,418 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import SceneKit
 
 @main struct PantherFFSkinViewerApp: App {
     var body: some Scene { WindowGroup { MainView() } }
 }
 
-struct ImportedAsset: Identifiable, Codable {
-    var id = UUID()
-    let name: String
-    let format: String
-    let size: Int
-    let unityVersion: String?
-}
+private enum Screen: String, CaseIterable {
+    case viewer = "Visor", wardrobe = "Vestidor", files = "Archivos"
 
-enum WardrobeSlot: String, CaseIterable, Identifiable {
-    case hair = "Cabello", face = "Máscara", top = "Camisa", pants = "Pantalón", shoes = "Zapatos"
-    var id: String { rawValue }
     var symbol: String {
         switch self {
-        case .hair: return "person.crop.circle"
-        case .face: return "theatermasks"
-        case .top: return "tshirt"
-        case .pants: return "figure.stand"
-        case .shoes: return "shoeprints.fill"
+        case .viewer: return "cube"
+        case .wardrobe: return "tshirt"
+        case .files: return "folder"
         }
     }
 }
 
 struct MainView: View {
-    @State private var showImporter = false
+    @State private var screen = Screen.viewer
+    @State private var showingImporter = false
+    @State private var importSlot: WardrobeSlot?
+    @State private var importing = false
     @State private var assets: [ImportedAsset] = []
-    @State private var selectedSlot: WardrobeSlot = .top
-    @State private var message = "Importa un archivo para examinar su formato."
-    @State private var previewModel: URL?
-    @State private var lookName = "Mi conjunto"
-    @State private var savedLooks: [String] = []
-    private let accent = Color(red: 0.13, green: 0.64, blue: 1)
+    @State private var activeAsset: ImportedAsset?
+    @State private var selectedSlot = WardrobeSlot.top
+    @State private var equipped: [WardrobeSlot: UUID] = [:]
+    @State private var preview: SCNScene?
+    @State private var errorMessage: String?
+    @State private var lookName = ""
+    @State private var savedLooks: [SavedLook] = []
+    @AppStorage("panther.selectedAsset") private var lastAsset = ""
+
+    private let accent = Color(red: 0.67, green: 0.57, blue: 1)
+    private let background = Color(red: 0.03, green: 0.04, blue: 0.07)
+    private let panel = Color(red: 0.07, green: 0.085, blue: 0.135)
+
     var body: some View {
-        NavigationView {
+        VStack(spacing: 0) {
+            header
             ScrollView {
-                VStack(spacing: 18) {
-                    HStack {
-                        Image(systemName: "pawprint.fill").foregroundColor(accent)
-                        VStack(alignment: .leading) {
-                            Text("PANTHER FF").font(.title2.bold())
-                            Text("SKIN VIEWER").font(.caption).tracking(3).foregroundColor(accent)
-                        }
-                        Spacer()
-                        Text("iOS").font(.caption).foregroundColor(.gray)
+                VStack(alignment: .leading, spacing: 16) {
+                    switch screen {
+                    case .viewer: viewer
+                    case .wardrobe: wardrobe
+                    case .files: files
                     }
-                    .padding(.top, 12)
-                    ZStack(alignment: .bottom) {
-                        RoundedRectangle(cornerRadius: 20).fill(Color(red: 0.06, green: 0.10, blue: 0.18))
-                        if let url = previewModel {
-                            ModelPreview(url: url).padding(8)
-                        } else {
-                            VStack(spacing: 12) {
-                                Image(systemName: "person.crop.rectangle.stack").font(.system(size: 65)).foregroundColor(accent)
-                                Text("Visor 3D").font(.title3.bold())
-                                Text("Importa un modelo .scn o .dae para verlo aquí. Los UnityFS se inspeccionan, pero aún no se renderizan.")
-                                    .font(.caption).multilineTextAlignment(.center).foregroundColor(.gray).padding(.horizontal, 30)
-                            }.padding(.bottom, 45)
-                        }
-                        Text(previewModel == nil ? "SIN MODELO CARGADO" : "MODELO 3D CARGADO")
-                            .font(.caption2.bold()).foregroundColor(accent).padding(10)
-                            .frame(maxWidth: .infinity).background(.black.opacity(0.6))
-                    }
-                    .frame(height: 300).clipShape(RoundedRectangle(cornerRadius: 20))
-                    Button { showImporter = true } label: {
-                        Label("Importar archivo", systemImage: "square.and.arrow.down")
-                            .font(.headline).frame(maxWidth: .infinity).padding(14)
-                    }
-                    .buttonStyle(.borderedProminent).tint(accent)
-                    Text(message).font(.caption).foregroundColor(.gray).frame(maxWidth: .infinity, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("VESTIDOR").font(.headline)
-                        Text("Categorías preparadas para prendas importadas. No incluye skins oficiales preinstaladas.")
-                            .font(.caption).foregroundColor(.gray)
-                        ForEach(WardrobeSlot.allCases) { slot in
-                            Button { selectedSlot = slot } label: {
-                                HStack {
-                                    Image(systemName: slot.symbol).frame(width: 25)
-                                    Text(slot.rawValue)
-                                    Spacer()
-                                    Text("Sin prendas").font(.caption).foregroundColor(.gray)
-                                    Image(systemName: "chevron.right")
-                                }.padding(12).background(selectedSlot == slot ? accent.opacity(0.2) : Color.white.opacity(0.06))
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("GUARDAR CONJUNTO").font(.headline)
-                        TextField("Nombre del conjunto", text: $lookName).textFieldStyle(.roundedBorder)
-                        Button("Guardar nombre del conjunto") {
-                            let name = lookName.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !name.isEmpty { savedLooks.append(name); UserDefaults.standard.set(savedLooks, forKey: "looks") }
-                        }.buttonStyle(.bordered)
-                        ForEach(savedLooks, id: \.self) { Text("• \($0)").font(.subheadline) }
-                        Text("En esta versión se guardan nombres, no combinaciones 3D.").font(.caption).foregroundColor(.gray)
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("ARCHIVOS IMPORTADOS").font(.headline)
-                        if assets.isEmpty { Text("Todavía no hay archivos.").foregroundColor(.gray) }
-                        ForEach(assets) { asset in
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(asset.name).font(.subheadline.bold()).lineLimit(2)
-                                Text("\(asset.format) • \(asset.size) bytes" + (asset.unityVersion.map { " • Unity \($0)" } ?? ""))
-                                    .font(.caption).foregroundColor(.gray)
-                            }.frame(maxWidth: .infinity, alignment: .leading).padding(10)
-                                .background(Color.white.opacity(0.06)).cornerRadius(8)
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }.padding(16)
+                }
+                .frame(maxWidth: 660)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
             }
-            .background(Color(red: 0.025, green: 0.04, blue: 0.08)).foregroundColor(.white)
-            .navigationBarHidden(true)
-            .onAppear { savedLooks = UserDefaults.standard.stringArray(forKey: "looks") ?? [] }
-            .fileImporter(isPresented: $showImporter, allowedContentTypes: [.item], allowsMultipleSelection: false) { result in
-                switch result {
-                case .success(let urls): if let url = urls.first { inspect(url) }
-                case .failure(let error): message = "No se pudo abrir: \(error.localizedDescription)"
+            tabBar
+        }
+        .background(background.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+        .tint(accent)
+        .fileImporter(isPresented: $showingImporter, allowedContentTypes: AssetImport.types,
+                      allowsMultipleSelection: false, onCompletion: handleSelection)
+        .alert("Panther FF", isPresented: Binding(get: { errorMessage != nil },
+                                                  set: { if !$0 { errorMessage = nil } })) {
+            Button("Aceptar", role: .cancel) { errorMessage = nil }
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .onAppear(perform: restoreLibrary)
+    }
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "pawprint.fill")
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(accent)
+                .frame(width: 48, height: 48)
+                .background(accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 15))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Panther FF").font(.system(.title2, design: .rounded).bold())
+                Text("Skin Viewer").font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if screen != .viewer {
+                Button { chooseFile() } label: {
+                    Image(systemName: "tray.and.arrow.down")
+                        .font(.headline)
+                        .frame(width: 48, height: 48)
+                        .background(panel, in: RoundedRectangle(cornerRadius: 15))
+                }
+                .disabled(importing)
+                .accessibilityLabel("Importar desde Archivos")
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 700)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var viewer: some View {
+        Group {
+            ZStack {
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(RadialGradient(colors: [accent.opacity(0.23), panel], center: .center,
+                                         startRadius: 10, endRadius: 220))
+                if let preview {
+                    SceneView(scene: preview, options: [.allowsCameraControl, .autoenablesDefaultLighting])
+                        .id(ObjectIdentifier(preview))
+                        .clipShape(RoundedRectangle(cornerRadius: 26))
+                        .accessibilityLabel("Vista interactiva del modelo 3D")
+                } else {
+                    stageGrid
+                    VStack(spacing: 12) {
+                        Image(systemName: activeAsset == nil ? "cube.transparent" : "shippingbox")
+                            .font(.system(size: 70, weight: .ultraLight))
+                            .foregroundStyle(accent)
+                            .shadow(color: accent.opacity(0.45), radius: 20)
+                            .accessibilityHidden(true)
+                        Text(activeAsset == nil ? "Visor 3D" : "Paquete UnityFS")
+                            .font(.system(.title2, design: .rounded).bold())
+                        Text(activeAsset == nil ? "Abre un modelo para verlo aquí." : "Consulta los recursos del paquete en el Vestidor.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(24)
                 }
             }
-        }.navigationViewStyle(.stack)
-    }
-    private func inspect(_ url: URL) {
-        let access = url.startAccessingSecurityScopedResource()
-        defer { if access { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let data = try Data(contentsOf: url)
-            let prefix = data.prefix(128)
-            let isUnity = prefix.starts(with: Data("UnityFS".utf8))
-            var version: String? = nil
-            if isUnity {
-                let fields = prefix.split(separator: 0)
-                if fields.count >= 3 { version = String(data: fields[2], encoding: .utf8) }
-            }
-            let ext = url.pathExtension.lowercased()
-            let isModel = ["scn", "dae"].contains(ext)
-            if isModel {
-                let target = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + ext)
-                try data.write(to: target)
-                previewModel = target
-                message = "Modelo 3D importado. Puedes girarlo y ampliarlo."
-            } else if isUnity {
-                previewModel = nil
-                message = "UnityFS detectado. La lectura de mallas, prendas y texturas requiere un decodificador adicional."
+            .frame(height: 350)
+            .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(accent.opacity(0.22)))
+            importButton("Importar desde Archivos", symbol: "tray.and.arrow.down") { chooseFile() }
+            if let activeAsset {
+                VStack(alignment: .leading, spacing: 6) {
+                    assetSummary(activeAsset)
+                    if !activeAsset.isModel {
+                        Button("Ver prendas detectadas") { screen = .wardrobe }
+                            .font(.subheadline.weight(.semibold))
+                    }
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(panel, in: RoundedRectangle(cornerRadius: 16))
             } else {
-                previewModel = nil
-                message = "Archivo importado, pero no es un modelo 3D compatible ni un UnityFS reconocido."
+                Label("UnityFS, SCN, DAE, OBJ y USDZ", systemImage: "doc")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(panel, in: RoundedRectangle(cornerRadius: 16))
             }
-            assets.insert(ImportedAsset(name: url.lastPathComponent, format: isUnity ? "UnityFS" : (isModel ? "Modelo 3D" : "Desconocido"), size: data.count, unityVersion: version), at: 0)
-        } catch { message = "Error leyendo archivo: \(error.localizedDescription)" }
+        }
     }
-}
 
-struct ModelPreview: UIViewRepresentable {
-    let url: URL
-    func makeUIView(context: Context) -> SCNView {
-        let view = SCNView()
-        view.backgroundColor = UIColor.clear
-        view.allowsCameraControl = true
-        view.autoenablesDefaultLighting = true
-        view.scene = try? SCNScene(url: url, options: nil)
-        return view
+    private var stageGrid: some View {
+        Canvas { context, size in
+            let horizon = size.height * 0.70
+            let center = size.width * 0.5
+            var grid = Path()
+            for column in -5...5 {
+                let step = CGFloat(column) * size.width / 8
+                grid.move(to: CGPoint(x: center + step * 0.24, y: horizon))
+                grid.addLine(to: CGPoint(x: center + step, y: size.height))
+            }
+            for fraction in [0.08, 0.17, 0.30, 0.48, 0.71, 0.98] {
+                let y = horizon + (size.height - horizon) * CGFloat(fraction)
+                grid.move(to: CGPoint(x: 0, y: y))
+                grid.addLine(to: CGPoint(x: size.width, y: y))
+            }
+            context.stroke(grid, with: .linearGradient(
+                Gradient(colors: [accent.opacity(0.02), accent.opacity(0.30)]),
+                startPoint: CGPoint(x: 0, y: horizon), endPoint: CGPoint(x: 0, y: size.height)
+            ), lineWidth: 0.65)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 26))
+        .accessibilityHidden(true)
     }
-    func updateUIView(_ view: SCNView, context: Context) {
-        view.scene = try? SCNScene(url: url, options: nil)
+
+    private var wardrobe: some View {
+        Group {
+            Text("Vestidor").font(.system(.largeTitle, design: .rounded).bold())
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(WardrobeSlot.allCases) { slot in
+                        Button { selectedSlot = slot } label: {
+                            VStack(spacing: 7) {
+                                Image(systemName: slot.symbol).imageScale(.large)
+                                Text(slot.rawValue).font(.caption.weight(.semibold))
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 62)
+                            .foregroundStyle(slot == selectedSlot ? background : Color.white)
+                            .background(slot == selectedSlot ? accent : panel,
+                                        in: RoundedRectangle(cornerRadius: 16))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(slot == selectedSlot ? .isSelected : [])
+                    }
+                }
+            }
+            if let activeAsset, !activeAsset.isModel {
+                Text("Recursos de \(selectedSlot.rawValue.lowercased())").font(.headline)
+                let names = activeAsset.pieces[selectedSlot] ?? []
+                if names.isEmpty {
+                    Text("No se encontraron recursos de esta categoría.").foregroundStyle(.secondary)
+                }
+                ForEach(names, id: \.self) { name in
+                    Label(name, systemImage: selectedSlot.symbol)
+                        .font(.footnote.monospaced())
+                        .padding(13)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(panel, in: RoundedRectangle(cornerRadius: 14))
+                }
+            }
+
+            Text("Prendas importadas").font(.headline)
+            if activeAsset?.isModel != true {
+                Text("Abre un modelo base en el Visor para probar prendas 3D compatibles.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            ForEach(assets.filter { $0.slot == selectedSlot }) { piece in
+                Button {
+                    if equipped[selectedSlot] == piece.id { equipped.removeValue(forKey: selectedSlot) }
+                    else { equipped[selectedSlot] = piece.id }
+                    rebuildScene()
+                    if preview != nil { screen = .viewer }
+                } label: {
+                    HStack {
+                        assetSummary(piece)
+                        Spacer()
+                        Image(systemName: equipped[selectedSlot] == piece.id ? "checkmark.circle.fill" : "plus.circle")
+                            .imageScale(.large).foregroundStyle(accent)
+                    }
+                    .padding(14)
+                    .background(panel, in: RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+                .disabled(activeAsset?.isModel != true)
+            }
+            importButton("Importar prenda", symbol: "plus") { chooseFile(slot: selectedSlot) }
+
+            Text("Conjuntos").font(.headline).padding(.top, 8)
+            if activeAsset?.isModel == true, let base = activeAsset?.id {
+                HStack {
+                    TextField("Nombre del conjunto", text: $lookName)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Guardar") {
+                        savedLooks.append(SavedLook(name: lookName.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                   base: base, pieces: equipped))
+                        persist(savedLooks, key: "panther.looks")
+                        lookName = ""
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(lookName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            ForEach(savedLooks) { look in
+                Button {
+                    guard let base = assets.first(where: { $0.id == look.base }) else { return }
+                    select(base, pieces: look.pieces)
+                } label: {
+                    Label(look.name, systemImage: "bookmark")
+                        .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(panel, in: RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+            }
+            let legacyNames = UserDefaults.standard.stringArray(forKey: "looks") ?? []
+            if !legacyNames.isEmpty {
+                Text("Nombres guardados anteriormente").font(.footnote).foregroundStyle(.secondary)
+                ForEach(Array(legacyNames.enumerated()), id: \.offset) { entry in Text(entry.element) }
+            }
+        }
+    }
+
+    private var files: some View {
+        Group {
+            Text("Archivos").font(.system(.largeTitle, design: .rounded).bold())
+            if assets.isEmpty {
+                Text("Tus archivos importados aparecerán aquí.").foregroundStyle(.secondary)
+            }
+            ForEach(assets) { asset in
+                Button { select(asset) } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: asset.slot?.symbol ?? (asset.isModel ? "cube" : "shippingbox"))
+                            .font(.title3).foregroundStyle(accent)
+                            .frame(width: 36)
+                        assetSummary(asset)
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .background(panel, in: RoundedRectangle(cornerRadius: 16))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func assetSummary(_ asset: ImportedAsset) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(asset.name).font(.subheadline.weight(.semibold)).lineLimit(2)
+            Text([asset.slot?.rawValue, asset.kind, asset.version.map { "Unity \($0)" },
+                  ByteCountFormatter.string(fromByteCount: Int64(asset.size), countStyle: .file)]
+                .compactMap { $0 }.joined(separator: "  ·  "))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            ForEach(Screen.allCases, id: \.self) { tab in
+                Button { screen = tab } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: tab.symbol).font(.system(size: 20, weight: .medium))
+                        Text(tab.rawValue).font(.caption.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 56)
+                    .foregroundStyle(screen == tab ? accent : Color.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(screen == tab ? .isSelected : [])
+            }
+        }
+        .background(panel.ignoresSafeArea(edges: .bottom))
+    }
+
+    private func importButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if importing { ProgressView().tint(background) }
+                else { Image(systemName: symbol) }
+                Text(importing ? "Importando…" : title).fontWeight(.bold)
+            }
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .foregroundStyle(background)
+            .background(accent, in: RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .disabled(importing)
+    }
+
+    private func chooseFile(slot: WardrobeSlot? = nil) {
+        importSlot = slot
+        showingImporter = true
+    }
+
+    private func handleSelection(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let error):
+            let failure = error as NSError
+            if failure.domain != NSCocoaErrorDomain || failure.code != NSUserCancelledError {
+                errorMessage = error.localizedDescription
+            }
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let slot = importSlot
+            importing = true
+            Task { @MainActor in
+                defer { importing = false }
+                do {
+                    let asset = try await Task.detached(priority: .userInitiated) {
+                        try AssetImport.read(url, slot: slot)
+                    }.value
+                    assets.insert(asset, at: 0)
+                    persist(assets, key: "panther.assets")
+                    if asset.slot == nil { select(asset) }
+                    else { screen = .wardrobe }
+                } catch { errorMessage = error.localizedDescription }
+            }
+        }
+    }
+
+    private func select(_ asset: ImportedAsset, pieces: [WardrobeSlot: UUID] = [:]) {
+        activeAsset = asset
+        lastAsset = asset.id.uuidString
+        equipped = pieces
+        rebuildScene()
+        screen = .viewer
+    }
+
+    private func rebuildScene() {
+        guard let activeAsset, activeAsset.isModel else {
+            preview = nil
+            return
+        }
+        do {
+            let scene = try AssetImport.scene(AssetImport.url(for: activeAsset))
+            for slot in WardrobeSlot.allCases {
+                guard let id = equipped[slot], id != activeAsset.id,
+                      let asset = assets.first(where: { $0.id == id && $0.slot == slot }) else { continue }
+                let piece = try AssetImport.scene(AssetImport.url(for: asset))
+                for child in piece.rootNode.childNodes { scene.rootNode.addChildNode(child) }
+            }
+            preview = scene
+        } catch {
+            preview = nil
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func restoreLibrary() {
+        let decoder = JSONDecoder()
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: "panther.assets"),
+           let imported = try? decoder.decode([ImportedAsset].self, from: data) { assets = imported }
+        if let data = defaults.data(forKey: "panther.looks"),
+           let looks = try? decoder.decode([SavedLook].self, from: data) { savedLooks = looks }
+        if activeAsset == nil, let last = assets.first(where: { $0.id.uuidString == lastAsset }) { select(last) }
+    }
+
+    private func persist<T: Encodable>(_ value: T, key: String) {
+        do {
+            let data = try JSONEncoder().encode(value)
+            UserDefaults.standard.set(data, forKey: key)
+        } catch { errorMessage = error.localizedDescription }
     }
 }
