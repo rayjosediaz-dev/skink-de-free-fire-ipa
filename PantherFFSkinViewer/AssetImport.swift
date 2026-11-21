@@ -65,7 +65,7 @@ enum ImportError: LocalizedError {
 }
 
 enum AssetImport {
-    static let types: [UTType] = [.data, .item, .archive, .content]
+    static let types: [UTType] = [.item, .data, .archive, .content, .fileURL]
     private static let modelExtensions = ["scn", "dae", "obj", "usdz"]
 
     static func directory() throws -> URL {
@@ -123,9 +123,15 @@ enum AssetImport {
         try FileManager.default.copyItem(at: url, to: local)
         do {
             if isBundle {
-                let bundle = try UnityBundle(data: Data(contentsOf: local, options: .mappedIfSafe))
-                return ImportedAsset(name: name, kind: "UnityFS", size: size, version: bundle.version,
-                                     pieces: bundle.pieces, entries: bundle.directory, slot: nil, localName: localName)
+                let data = try Data(contentsOf: local, options: .mappedIfSafe)
+                // Keep the original bundle even when a newer UnityFS variant cannot be indexed.
+                // This does not imply that its meshes can be rendered or rewritten.
+                if let bundle = try? UnityBundle(data: data) {
+                    return ImportedAsset(name: name, kind: "UnityFS", size: size, version: bundle.version,
+                                         pieces: bundle.pieces, entries: bundle.directory, slot: nil, localName: localName)
+                }
+                return ImportedAsset(name: name, kind: "UnityFS", size: size, version: nil,
+                                     pieces: [:], entries: [], slot: nil, localName: localName)
             }
             _ = try scene(local)
             return ImportedAsset(name: name, kind: ext.uppercased(), size: size, version: nil,
