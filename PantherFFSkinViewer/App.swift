@@ -19,6 +19,14 @@ private enum Screen: String, CaseIterable {
 
 struct MainView: View {
     @State private var screen = Screen.viewer
+    @State private var studioEnabled = true
+    @State private var characterIndex = 0
+    @State private var hairIndex = 0
+    @State private var topIndex = 0
+    @State private var pantsIndex = 0
+    @State private var shoesIndex = 0
+    @State private var exportURL: URL?
+    @State private var showingShare = false
     @State private var showingImporter = false
     @State private var importSlot: WardrobeSlot?
     @State private var importing = false
@@ -65,7 +73,13 @@ struct MainView: View {
         } message: {
             Text(errorMessage ?? "")
         }
-        .onAppear(perform: restoreLibrary)
+        .sheet(isPresented: $showingShare) {
+            if let exportURL { PantherShareSheet(url: exportURL) }
+        }
+        .onAppear {
+            restoreLibrary()
+            if activeAsset == nil { refreshStudio() }
+        }
     }
 
     private var header: some View {
@@ -129,6 +143,7 @@ struct MainView: View {
             }
             .frame(height: 350)
             .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(accent.opacity(0.22)))
+            if studioEnabled { studioControls }
             importButton("Importar desde Archivos", symbol: "tray.and.arrow.down") { chooseFile() }
             if let activeAsset {
                 VStack(alignment: .leading, spacing: 6) {
@@ -179,6 +194,7 @@ struct MainView: View {
     private var wardrobe: some View {
         Group {
             Text("Vestidor").font(.system(.largeTitle, design: .rounded).bold())
+            if studioEnabled { studioWardrobe }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(WardrobeSlot.allCases) { slot in
@@ -372,11 +388,84 @@ struct MainView: View {
     }
 
     private func select(_ asset: ImportedAsset, pieces: [WardrobeSlot: UUID] = [:]) {
+        studioEnabled = false
         activeAsset = asset
         lastAsset = asset.id.uuidString
         equipped = pieces
         rebuildScene()
         screen = .viewer
+    }
+
+    private func refreshStudio() {
+        studioEnabled = true
+        preview = PantherStudio.make(character: characterIndex, hair: hairIndex, top: topIndex, pants: pantsIndex, shoes: shoesIndex)
+    }
+
+    private var studioControls: some View {
+        VStack(spacing: 10) {
+            Text("Personajes originales incluidos · gira el modelo con el dedo")
+                .font(.footnote).foregroundStyle(.secondary)
+            HStack {
+                Button("Personaje aleatorio") {
+                    characterIndex = Int.random(in: 0..<PantherStudio.skinColors.count)
+                    hairIndex = Int.random(in: 0..<PantherStudio.hairColors.count)
+                    topIndex = Int.random(in: 0..<PantherStudio.clothColors.count)
+                    pantsIndex = Int.random(in: 0..<PantherStudio.clothColors.count)
+                    shoesIndex = Int.random(in: 0..<PantherStudio.clothColors.count)
+                    refreshStudio()
+                }
+                .buttonStyle(.borderedProminent)
+                Button("Exportar .scn") {
+                    guard let preview else { return }
+                    do {
+                        exportURL = try PantherStudio.export(preview)
+                        showingShare = true
+                    } catch { errorMessage = error.localizedDescription }
+                }
+                .buttonStyle(.bordered)
+            }
+            Button("Volver al personaje incluido") { refreshStudio() }
+                .font(.footnote)
+        }
+    }
+
+    private var studioWardrobe: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Ropa incluida · diseños originales").font(.headline)
+            Text("Selecciona colores y estilos para vestir al personaje 3D. No son modelos oficiales de Free Fire.")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(WardrobeSlot.allCases) { slot in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(slot.rawValue).font(.subheadline.weight(.semibold))
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 9) {
+                            ForEach(0..<(slot == .hair ? PantherStudio.hairColors.count : slot == .face ? PantherStudio.skinColors.count : PantherStudio.clothColors.count), id: \.self) { index in
+                                Button {
+                                    switch slot {
+                                    case .hair: hairIndex = index
+                                    case .face: characterIndex = index
+                                    case .top: topIndex = index
+                                    case .pants: pantsIndex = index
+                                    case .shoes: shoesIndex = index
+                                    }
+                                    refreshStudio()
+                                } label: {
+                                    Circle()
+                                        .fill(Color(uiColor: slot == .hair ? PantherStudio.hairColors[index] : slot == .face ? PantherStudio.skinColors[index] : PantherStudio.clothColors[index]))
+                                        .frame(width: 40, height: 40)
+                                        .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 1))
+                                }
+                                .accessibilityLabel("\(slot.rawValue) opción \(index + 1)")
+                            }
+                        }
+                    }
+                }
+            }
+            Button("Ver personaje vestido") { screen = .viewer }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(14)
+        .background(panel, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func rebuildScene() {
@@ -415,4 +504,12 @@ struct MainView: View {
             UserDefaults.standard.set(data, forKey: key)
         } catch { errorMessage = error.localizedDescription }
     }
+}
+
+private struct PantherShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
