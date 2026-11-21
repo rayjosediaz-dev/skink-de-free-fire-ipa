@@ -21,6 +21,7 @@ struct MainView: View {
     @State private var screen = Screen.viewer
     @State private var studioEnabled = true
     @State private var characterIndex = 0
+    @State private var animeStyleName = "Original"
     @State private var hairIndex = 0
     @State private var topIndex = 0
     @State private var pantsIndex = 0
@@ -194,7 +195,7 @@ struct MainView: View {
     private var wardrobe: some View {
         Group {
             Text("Vestidor").font(.system(.largeTitle, design: .rounded).bold())
-            if studioEnabled { studioWardrobe }
+            if studioEnabled { animePresets; studioWardrobe }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(WardrobeSlot.allCases) { slot in
@@ -403,10 +404,11 @@ struct MainView: View {
 
     private var studioControls: some View {
         VStack(spacing: 10) {
-            Text("Personajes originales incluidos · gira el modelo con el dedo")
+            Text("Estilo: \\(animeStyleName) · gira el modelo con el dedo")
                 .font(.footnote).foregroundStyle(.secondary)
             HStack {
                 Button("Personaje aleatorio") {
+                    animeStyleName = "Aleatorio"
                     characterIndex = Int.random(in: 0..<PantherStudio.skinColors.count)
                     hairIndex = Int.random(in: 0..<PantherStudio.hairColors.count)
                     topIndex = Int.random(in: 0..<PantherStudio.clothColors.count)
@@ -426,6 +428,39 @@ struct MainView: View {
             }
             Button("Volver al personaje incluido") { refreshStudio() }
                 .font(.footnote)
+        }
+    }
+
+    private var animePresets: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Estilos anime originales").font(.headline)
+            Text("Diseños inspirados en arquetipos de anime. No son personajes ni skins oficiales de Dragon Ball o Naruto.")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(0..<8, id: \.self) { index in
+                Button {
+                    let names = ["Guerrero naranja", "Rival azul", "Guerrero dorado", "Maestro violeta",
+                                 "Ninja naranja", "Ninja oscuro", "Ninja rojo", "Ninja verde"]
+                    animeStyleName = names[index]
+                    characterIndex = [0,1,3,2,0,1,2,3][index]
+                    hairIndex = [0,0,3,4,3,0,0,0][index]
+                    topIndex = [6,0,6,3,6,5,1,2][index]
+                    pantsIndex = [0,0,0,5,5,5,5,2][index]
+                    shoesIndex = [0,4,0,5,0,5,5,5][index]
+                    refreshStudio()
+                    screen = .viewer
+                } label: {
+                    HStack {
+                        Image(systemName: index < 4 ? "bolt.fill" : "sparkles")
+                        Text(["Guerrero naranja", "Rival azul", "Guerrero dorado", "Maestro violeta",
+                              "Ninja naranja", "Ninja oscuro", "Ninja rojo", "Ninja verde"][index])
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }
+                    .padding(12)
+                    .background(panel, in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
